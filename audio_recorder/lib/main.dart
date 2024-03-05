@@ -37,7 +37,25 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool isRecorderReady = false;
+  bool isPlaying = false;
   final _recorder = FlutterSoundRecorder();
+  late String _recordFilePath;
+  final _player = FlutterSoundPlayer();
+  Timer? _timer;
+  int _elapsedSeconds = 0;
+
+  void _startTimer() {
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+      setState(() {
+        _elapsedSeconds++;
+      });
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _elapsedSeconds = 0;
+  }
 
   @override
   void initState() {
@@ -64,17 +82,24 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     // TODO: implement dispose
+    _player.closePlayer();
     _recorder.closeRecorder();
+    _stopTimer();
     super.dispose();
   }
 
   Future record() async{
     if (!isRecorderReady) return;
 
-    await _recorder.startRecorder(toFile: 'audio');
+    // Get the external storage directory
+    final directory = await getExternalStorageDirectory();
+    _recordFilePath = '${directory!.path}/audio.aac';
 
-    
+    _startTimer();
+
+    await _recorder.startRecorder(toFile: _recordFilePath);
   }
+
 
   Future stop() async{
     if (!isRecorderReady) return;
@@ -82,7 +107,40 @@ class _MyHomePageState extends State<MyHomePage> {
     final path = await _recorder.stopRecorder();
     final audioFile = File(path!);
 
+    _stopTimer();
+
+
     print('Recorded audio: $audioFile');
+  }
+
+  Future<void> play() async {
+    print('Play function called');
+    if (!await File(_recordFilePath).exists()) {
+      print('No recorded file found');
+      return;
+    }
+
+    try {
+      print('Opening player');
+      await _player.openPlayer().whenComplete(() {
+        isPlaying = true;
+      });
+      await _player.startPlayer(fromURI: _recordFilePath).whenComplete(() {
+        setState(() {
+          isPlaying = false;
+        });
+      });
+    } catch (e) {
+      print('Failed to play recording: $e');
+    }
+  }
+
+  Future<void> stopPlayback() async {
+    try {
+      await _player.pausePlayer();
+    } catch (e) {
+      print('Failed to stop playback: $e');
+    }
   }
 
 
@@ -96,17 +154,8 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            StreamBuilder<RecordingDisposition>(
-              stream: _recorder.onProgress, 
-              builder: (context, snapshot) {
-                final duration = snapshot.hasData ? snapshot.data!.duration : Duration.zero;
-
-                String twoDigits (int n) => n.toString().padLeft(2,'0');
-                final twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-                final twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-
-                return Text('$twoDigitMinutes:$twoDigitSeconds', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold),);
-              }),
+          Text('${_elapsedSeconds ~/ 60}:${(_elapsedSeconds % 60).toString().padLeft(2, '0')}'),
+            SizedBox(height: 10,),
             ElevatedButton(
               child: Icon(
                 _recorder.isRecording ? Icons.stop : Icons.mic,
@@ -123,6 +172,28 @@ class _MyHomePageState extends State<MyHomePage> {
                   
                 });
               },
+            ),
+            SizedBox(height: 50,),
+            ElevatedButton(
+              onPressed: () async {
+                if (isPlaying) {
+                  await stopPlayback(); // Pause the audio playback
+                } else {
+                  if (_player.isPaused) {
+                    await _player.resumePlayer(); // Resume the playback
+                  } else {
+                    await play(); // Start playing the audio
+                  }
+                }
+                setState(() {
+                  // Toggle the isPlaying state
+                  isPlaying = !isPlaying;
+                });
+              },
+              child: Icon(
+                isPlaying ? Icons.stop : Icons.play_arrow,
+                size: 80,
+              ),
             ),
           ],
         )
