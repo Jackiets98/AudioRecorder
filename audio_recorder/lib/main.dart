@@ -36,102 +36,53 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  final FlutterSoundPlayer _player = FlutterSoundPlayer();
-  bool _isRecording = false;
-  bool _isPlaying = false;
-  int _recordDurationSeconds = 0;
-  List<File> _recordedFiles = [];
-
-  @override
-  void dispose() {
-    _recorder.closeRecorder();
-    _player.closePlayer();
-    super.dispose();
-  }
+  bool isRecorderReady = false;
+  final _recorder = FlutterSoundRecorder();
 
   @override
   void initState() {
+    // TODO: implement initState
     super.initState();
+
     initRecorder();
   }
 
-  Future<void> initRecorder() async {
+  Future initRecorder() async{
     final status = await Permission.microphone.request();
 
     if (status != PermissionStatus.granted) {
-      throw 'Microphone permission is not granted';
+      throw 'Micrphone Permission Is Not Granted';
     }
+
+    await _recorder.openRecorder();
+    isRecorderReady = true;
+    _recorder.setSubscriptionDuration(const Duration(microseconds: 500));
   }
 
-  Future<void> _startRecording() async {
-    try {
-      await _recorder.openRecorder();
 
-      _recorder.onProgress!.listen((RecordingDisposition event) {
-        setState(() {
-          _recordDurationSeconds = event.duration.inSeconds;
-        });
-      });
 
-      if (_recorder.isStopped) {
-        final filePath = '/Users/waynewong/Desktop/recording.aac';
-
-        await _recorder.startRecorder(
-          toFile: filePath,
-          codec: Codec.aacMP4,
-        );
-        setState(() {
-          _isRecording = true;
-        });
-      } else {
-        print('Failed to open recorder');
-      }
-    } catch (e) {
-      print('Failed to start recording: $e');
-    }
+  @override
+  void dispose() {
+    // TODO: implement dispose
+    _recorder.closeRecorder();
+    super.dispose();
   }
 
-  Future<void> _stopRecording() async {
-    try {
-      await _recorder.stopRecorder();
-      setState(() {
-        _isRecording = false;
-        _recordDurationSeconds = 0; // Reset recording duration
-      });
-    } catch (e) {
-      print('Failed to stop recording: $e');
-    }
+  Future record() async{
+    if (!isRecorderReady) return;
+
+    await _recorder.startRecorder(toFile: 'audio');
+
+    
   }
 
-  void _playRecording(String filePath) async {
-    try {
-      await _player.startPlayer(
-        fromURI: filePath,
-        codec: Codec.aacMP4,
-        whenFinished: () {
-          setState(() {
-            _isPlaying = false;
-          });
-        },
-      );
-      setState(() {
-        _isPlaying = true;
-      });
-    } catch (e) {
-      print('Failed to play recording: $e');
-    }
-  }
+  Future stop() async{
+    if (!isRecorderReady) return;
 
-  void _stopPlayback() async {
-    try {
-      await _player.stopPlayer();
-      setState(() {
-        _isPlaying = false;
-      });
-    } catch (e) {
-      print('Failed to stop playback: $e');
-    }
+    final path = await _recorder.stopRecorder();
+    final audioFile = File(path!);
+
+    print('Recorded audio: $audioFile');
   }
 
 
@@ -144,48 +95,37 @@ class _MyHomePageState extends State<MyHomePage> {
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              'Audio',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Recording Duration: $_recordDurationSeconds seconds',
-            ),
-            SizedBox(height: 20),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _recordedFiles.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    title: Text('Recording ${index + 1}'),
-                    onTap: () {
-                      _playRecording(_recordedFiles[index].path);
-                    },
-                  );
-                },
+          children: [
+            StreamBuilder<RecordingDisposition>(
+              stream: _recorder.onProgress, 
+              builder: (context, snapshot) {
+                final duration = snapshot.hasData ? snapshot.data!.duration : Duration.zero;
+
+                String twoDigits (int n) => n.toString().padLeft(2,'0');
+                final twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+                final twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+
+                return Text('$twoDigitMinutes:$twoDigitSeconds', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold),);
+              }),
+            ElevatedButton(
+              child: Icon(
+                _recorder.isRecording ? Icons.stop : Icons.mic,
+                size: 80,
               ),
+              onPressed: () async{
+                if (_recorder.isRecording) {
+                  await stop();
+                }else {
+                  await record();
+                }
+            
+                setState(() {
+                  
+                });
+              },
             ),
           ],
-        ),
-      ),
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          FloatingActionButton(
-            onPressed: _isRecording ? _stopRecording : _startRecording,
-            tooltip: _isRecording ? 'Stop Recording' : 'Start Recording',
-            child: Icon(_isRecording ? Icons.stop : Icons.mic),
-          ),
-          const SizedBox(width: 20),
-          FloatingActionButton(
-            onPressed: _isPlaying ? _stopPlayback : null,
-            tooltip: _isPlaying ? 'Stop Playback' : 'Play Recording',
-            child: Icon(_isPlaying ? Icons.stop : Icons.play_arrow),
-          ),
-        ],
+        )
       ),
     );
   }
